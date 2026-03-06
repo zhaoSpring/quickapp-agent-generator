@@ -1,0 +1,36 @@
+{
+    "name": "quickapp-agent-generator",
+    "version": "1.0.0",
+    "description": "AI-powered QuickApp Agent Generator",
+    "main": "dist/index.js",
+    "scripts": {
+        "generate": "tsx src/index.ts",
+        "test-llm": "tsx test-llm.ts",
+        "dev": "tsx src/index.ts",
+        "build": "tsc"
+    },
+    "keywords": [
+        "quickapp",
+        "ai",
+        "agent",
+        "generator"
+    ],
+    "dependencies": {
+        "@langchain/core": "^0.3.0",
+        "@langchain/openai": "^0.3.0",
+        "langchain": "^0.3.0",
+        "dotenv": "^16.4.5",
+        "fs-extra": "^11.2.0",
+        "handlebars": "^4.7.8",
+        "inquirer": "^9.2.15",
+        "chalk": "^5.3.0",
+        "ora": "^8.0.1"
+    },
+    "devDependencies": {
+        "@types/node": "^20.11.0",
+        "@types/fs-extra": "^11.0.4",
+        "@types/inquirer": "^9.0.7",
+        "typescript": "^5.3.3",
+        "tsx": "^4.7.0"
+    }
+}

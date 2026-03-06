@@ -1,0 +1,1202 @@
+<import name="container-compent" src="@components/container.ux"></import>
+<import name="c-markdown" src="@components/markdown.ux"></import>
+<import name="home-intro" src="@components/homeIntro.ux"></import>
+<import name="thinking-indicator" src="@components/thinkingIndicator.ux"></import>
+
+<template>
+  <container-compent
+    id="{{ id }}"
+    custom-back="{{ true }}"
+    @leftclick="leftclick"
+    confirm-on-new-chat="{{ !isAtInitialState }}"
+    @createnewchat="createNewChat"
+    @agentinfo="onAgentInfo"
+    onresize="onResize"
+  >
+    <div class="content" style="margin-top: 97px">
+      <!-- 首页引导 -->
+      <list if="{{ showIntro }}" class="chat-list" id="chatList" style="padding: 0">
+        <list-item class="chat-item" type="intro" style="padding: 0">
+          <home-intro agent-info="{{ agentInfo }}" @suggestion="onSuggestion"></home-intro>
+        </list-item>
+      </list>
+      
+      <!-- 聊天消息列表 -->
+      <list
+        if="{{ showMessages }}"
+        class="chat-list"
+        id="chatList"
+        onscroll="onChatScroll"
+        onscrollbottom="onChatScrollBottom"
+      >
+        <block for="{{ (index, message) in messages }}">
+          <!-- 用户消息 -->
+          <list-item class="chat-item" type="userMessage" if="{{ message.role === 'user' }}">
+            <div class="user-message">
+              <text class="user-text" if="{{ !!(message.content && message.content[0] && message.content[0].text) }}">
+                {{ message.content && message.content[0] ? message.content[0].text : '' }}
+              </text>
+            </div>
+          </list-item>
+          
+          <!-- 思考提示 -->
+          <list-item
+            type="assistantThinking"
+            if="{{ message.role === 'assistant' && !!message.thinkingPrompt }}"
+            style="padding: 0 10px"
+          >
+            <thinking-indicator
+              prompt="{{ message.thinkingPrompt }}"
+              @retry="retryMessage(index)"
+            ></thinking-indicator>
+          </list-item>
+          
+          <!-- 智能体回答内容 -->
+          <block if="{{ message.role === 'assistant' }}">
+            <block for="{{ (i, item) in (message.contentItems || []) }}">
+              <!-- Markdown消息 -->
+              <list-item
+                type="assistantRichText"
+                if="{{ item && item.type === 'rich_text' && !item.isImage }}"
+              >
+                <div class="assistant-rich">
+                  <c-markdown data="{{ item && item.content ? item.content : '' }}"></c-markdown>
+                </div>
+              </list-item>
+              
+              <!-- 图片消息 -->
+              <list-item
+                type="assistantImage"
+                if="{{ item && item.type === 'rich_text' && item.isImage }}"
+                style="padding: 0 8px"
+              >
+                <div class="assistant-image">
+                  <image
+                    class="assistant-image-item"
+                    src="{{ item && item.imageUrl ? item.imageUrl : '' }}"
+                    onclick="previewImage(item.imageUrl)"
+                  ></image>
+                </div>
+              </list-item>
+            </block>
+          </block>
+        </block>
+        <list-item type="divider" style="height: 1px"></list-item>
+      </list>
+
+      <!-- 跳转到底部按钮 -->
+      <div
+        class="jump-to-bottom"
+        show="{{ showJumpToBottom }}"
+        style="bottom: {{ inputAreaHeight + 10 }}px"
+        onclick="jumpToBottom"
+      >
+        <image class="jump-to-bottom-icon" src="/assets/images/icon-next.svg"></image>
+      </div>
+
+      <!-- 输入框占位 -->
+      <div style="height: {{ inputAreaHeight }}px"></div>
+      
+      <!-- 输入区域 -->
+      <div class="input-area">
+        <div class="compose-wrapper">
+          <textarea
+            id="composeInput"
+            class="compose-input"
+            placeholder=" 发消息..."
+            maxlength="500"
+            onchange="updateInput"
+            onlinechange="onLineChange"
+            onfocus="onInputFocus"
+            style="height: {{ inputHeight }}px; max-height: {{ 4 * lineHeight }}px; line-height: {{ lineHeight }}px"
+            >{{ inputText }}</textarea
+          >
+          <image
+            class="send-icon"
+            src="{{ isResponding ? '/assets/images/icon-typing-paused.svg' : (inputText && inputText.trim() ?
+'/assets/images/icon-typing-active.svg' : '/assets/images/icon-typing-idle.svg') }}"
+            onclick="onSendIconClick"
+          ></image>
+        </div>
+      </div>
+    </div>
+  </container-compent>
+</template>
+
+
+<script>
+import router from '@system.router'
+import media from '@system.media'
+import clipboard from '@system.clipboard'
+import prompt from '@system.prompt'
+import network from '@system.network'
+import { requestChat, requestChatStream, getNetworkType, getPlatformInfo } from '/src/common/api'
+import { parseResponse, getAgentConfig, isStreamResponse } from '/src/common/apiHelper'
+import { MESSAGE_PROMPTS } from '/src/constants/index'
+
+export default {
+  public: {
+    id: '{{AGENT_ID}}', // 智能体id
+  },
+  private: {
+    // 初始引导是否展示
+    showIntro: true,
+    // 是否显示消息列表
+    showMessages: false,
+    // 输入框文本
+    inputText: '',
+    // 输入框当前高度（单位：px）
+    inputHeight: 30,
+    // 单行高度（单位：px）
+    lineHeight: 30,
+    // 是否处于回答中
+    isResponding: false,
+    // 流式请求任务句柄
+    streamTask: null,
+    // 用户是否手动中断回答
+    manuallyInterrupted: false,
+    // 当前助手消息是否已产生内容
+    assistantReceivedContent: false,
+    // 是否已收到非空文本内容
+    assistantReceivedTextContent: false,
+    // 消息列表
+    messages: [],
+    // 当前正在生成的助手消息引用
+    currentAssistantMessage: null,
+    // 网络是否在线
+    isNetworkOnline: true,
+    // 当前网络类型
+    networkType: 'wifi',
+    // 是否处于低版本一次性请求流程
+    isLegacyMode: false,
+    // 刷新重试文案
+    RETRY_SUFFIX: MESSAGE_PROMPTS.RETRY_SUFFIX,
+    // 会话id
+    sessionId: '',
+    // 当前请求序列标识
+    currentRequestSeq: '',
+    // 是否显示"到底"按钮
+    showJumpToBottom: false,
+    // 是否到底部
+    isAtBottom: true,
+    // 聊天列表是否可滚动
+    scrollableDetected: false,
+    // 上次滚动位置
+    lastScrollY: 0,
+    // 智能体信息
+    agentInfo: {},
+  },
+
+  computed: {
+    // 是否处于初始引导状态
+    isAtInitialState() {
+      const atIntro = this.showIntro === true && this.showMessages === false
+      const noInput = !this.inputText || !String(this.inputText).trim()
+      const emptyMessages = !Array.isArray(this.messages) || this.messages.length === 0
+      return atIntro && noInput && emptyMessages && !this.isResponding
+    },
+    // 输入区域高度
+    inputAreaHeight() {
+      const inputH = typeof this.inputHeight === 'number' ? this.inputHeight : this.lineHeight
+      const sendIconH = 32
+      const wrapperPaddingTB = 24
+      const areaPaddingTB = 20
+      return Math.max(inputH, sendIconH) + wrapperPaddingTB + areaPaddingTB
+    },
+  },
+
+  
+  onAgentInfo(evt) {
+    if (evt && evt.detail && evt.detail.agentInfo) {
+      this.agentInfo = evt.detail.agentInfo
+    }
+  },
+  
+  async onInit() {
+    // 初始化会话id
+    this.sessionId = ''
+    // 加载智能体配置
+    const config = getAgentConfig()
+    this.agentInfo = {
+      agentName: config.name,
+      icon: config.icon,
+      description: config.description,
+      openingQuestions: config.openingQuestions.filter(q => q && q.trim()),
+    }
+  },
+  
+  onShow() {
+    console.log('### onShow sessionId ###:', this.sessionId)
+  },
+  
+  async onHide() {
+    // 页面隐藏时：若存在进行中的回答，停止任务
+    if (this.isResponding) {
+      this.stopResponding()
+    }
+    this.$nextTick(() => {
+      this.$element('composeInput').focus({ focus: false })
+    })
+  },
+  
+  async onReady() {
+    // 初始化网络监听
+    this.initNetworkMonitor()
+  },
+  
+  /* 使用推荐问题 */
+  useSuggestion(text) {
+    const picked = typeof text === 'string' ? text : ''
+    this.inputText = picked
+    this.sendMessage()
+  },
+  
+  /* 推荐问题点击 */
+  onSuggestion(evt) {
+    if (evt && evt.detail && evt.detail.question) {
+      this.useSuggestion(evt.detail.question)
+    }
+  },
+
+  /* 输入框更新 */
+  updateInput(e) {
+    const val = e && typeof e.value === 'string' ? e.value : ''
+    if (val.length >= 500) {
+      prompt.showToast({ message: '输入字符超出500字' })
+    }
+    this.inputText = val.length > 500 ? val.slice(0, 500) : val
+    const isEmpty = !this.inputText || !String(this.inputText).trim()
+    if (isEmpty) {
+      this.inputHeight = this.lineHeight
+    }
+  },
+  
+  /* 文本行数改变 */
+  onLineChange(msg) {
+    const lc = msg && typeof msg.lineCount === 'number' ? msg.lineCount : 0
+    if (!this.inputText || !String(this.inputText).trim()) {
+      this.inputHeight = this.lineHeight
+    } else {
+      const lines = lc > 0 ? lc : 1
+      const capped = Math.min(4, lines)
+      this.inputHeight = capped * this.lineHeight
+    }
+  },
+  
+  /* 预览图片 */
+  previewImage(url) {
+    if (!url || !String(url).trim()) return
+    media.previewImage({
+      uris: [url],
+      success: () => {
+        console.log('### previewImage success ###')
+      },
+      fail: (err) => {
+        console.log('### previewImage fail ###:', err)
+      },
+    })
+  },
+  
+  /* 容器尺寸变化 */
+  onResize() {
+    console.log('### onResize ###')
+    if (!this.showMessages) return
+    this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+  },
+  
+  /* 输入框获得焦点 */
+  onInputFocus() {
+    console.log('### onInputFocus ###')
+    if (this.inputHeight === 0) {
+      this.inputHeight = this.lineHeight
+    }
+    this.scrollToBottom({ nextTick: false, behavior: 'instant' })
+  },
+
+  
+  /* 发送消息 */
+  async sendMessage() {
+    if (!this.inputText.trim()) {
+      return
+    }
+
+    // 若正在响应：先中断后再发送
+    if (this.isResponding) {
+      if (this.isLegacyMode && !this.assistantReceivedTextContent) {
+        prompt.showToast({ message: '正在思考中，请稍后再试' })
+        return
+      }
+      this.stopResponding()
+    }
+
+    // 发送后隐藏开场引导
+    this.showIntro = false
+    this.showMessages = true
+
+    // 添加用户消息
+    this.messages.push({
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: this.inputText,
+        },
+      ],
+    })
+
+    this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+
+    const userInput = this.inputText
+    this.inputText = ''
+    this.inputHeight = this.lineHeight
+    this.$element('composeInput').focus({ focus: false })
+
+    // 创建空的助手消息
+    this.currentAssistantMessage = {
+      role: 'assistant',
+      content: [{ type: 'text', text: '' }],
+      contentItems: [],
+      thinkingPrompt: MESSAGE_PROMPTS.THINK_SEARCHING,
+      statusPrompt: '',
+    }
+    this.messages.push(this.currentAssistantMessage)
+
+    // 调用API获取回答
+    this.isResponding = true
+    this.manuallyInterrupted = false
+    this.assistantReceivedContent = false
+    this.assistantReceivedTextContent = false
+
+    // 检查网络状态
+    try {
+      const type = await getNetworkType()
+      this.networkType = type
+      this.isNetworkOnline = type !== 'none'
+      if (!this.isNetworkOnline) {
+        if (this.currentAssistantMessage) {
+          this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_OFFLINE
+        }
+        this.isResponding = false
+        this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+        return
+      }
+      
+      const info = await getPlatformInfo()
+      console.log('### getPlatformInfo ###:', info)
+      const ver = Number(info.platformVersionCode)
+      
+      // 判断是否支持流式
+      if (!isNaN(ver) && ver >= 1311 && isStreamResponse()) {
+        this.sendRequest(userInput)
+      } else {
+        this.sendRequestLegacy(userInput)
+      }
+    } catch (e) {
+      this.sendRequest(userInput)
+    }
+  },
+
+  
+  /* 发送流式请求 */
+  async sendRequest(userInput, retry = false) {
+    this.isLegacyMode = false
+    const reqSeq = Date.now() + '_' + Math.random().toString(36).slice(2, 8)
+    this.currentRequestSeq = reqSeq
+
+    const requestBody = {
+      sessionId: this.sessionId,
+      question: userInput,
+      botId: this.id,
+    }
+
+    const retRequestTask = await requestChatStream(requestBody)
+    this.streamTask = retRequestTask
+
+    if (retRequestTask.onHeadersReceived) {
+      retRequestTask.onHeadersReceived((response) => {
+        console.log('### onHeadersReceived ###', JSON.stringify(response))
+        if (response && response['X-Conversation-ID']) {
+          this.sessionId = response['X-Conversation-ID']
+          console.log('### Update SessionID ###', this.sessionId)
+        }
+      })
+    }
+
+    retRequestTask.onEvent((response) => {
+      if (this.currentRequestSeq !== reqSeq) return
+      console.log('### onEvent ###:', response.data)
+      const raw = response && response.data ? String(response.data).trim() : ''
+      if (!raw) return
+      let result
+      try {
+        result = JSON.parse(raw)
+      } catch (e) {
+        return
+      }
+      this.handleStreamData(result)
+    })
+
+    retRequestTask.onOpen((response) => {
+      if (this.currentRequestSeq !== reqSeq) return
+      console.log('### onOpen ###:', response)
+    })
+
+    retRequestTask.onClosed(async (response) => {
+      if (this.currentRequestSeq !== reqSeq) return
+      const { statusCode, data } = response || {}
+      console.log('### onClosed ###:', statusCode, data)
+      this.isResponding = false
+      this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+
+      // 离线态处理
+      if (!this.isNetworkOnline || this.networkType === 'none') {
+        if (this.currentAssistantMessage) {
+          if (!this.assistantReceivedTextContent) {
+            this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_OFFLINE
+          } else {
+            this.currentAssistantMessage.statusPrompt = MESSAGE_PROMPTS.STATUS_OFFLINE_INTERRUPTED
+          }
+        }
+        return
+      }
+
+      // 异常关闭处理
+      if (statusCode === 200 && !this.manuallyInterrupted) {
+        if (this.currentAssistantMessage) {
+          if (this.assistantReceivedTextContent) {
+            this.currentAssistantMessage.statusPrompt = MESSAGE_PROMPTS.STATUS_OFFLINE_INTERRUPTED
+          } else {
+            try {
+              const type = await getNetworkType()
+              if (type === 'none') {
+                this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_OFFLINE
+              } else {
+                this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_UNABLE
+              }
+            } catch (e) {
+              this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_UNABLE
+            }
+          }
+        }
+        return
+      }
+
+      // 正常关闭
+      if (statusCode === 0) {
+        if (!this.assistantReceivedTextContent && this.currentAssistantMessage) {
+          try {
+            const type = await getNetworkType()
+            if (type === 'none') {
+              this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_OFFLINE
+            } else {
+              this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_UNABLE
+            }
+          } catch (e) {
+            this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_UNABLE
+          }
+        }
+        return
+      }
+    })
+  },
+
+  
+  /* 低版本一次性请求 */
+  async sendRequestLegacy(userInput) {
+    this.isLegacyMode = true
+    const reqSeq = Date.now() + '_' + Math.random().toString(36).slice(2, 8)
+    this.currentRequestSeq = reqSeq
+    
+    try {
+      // 离线直接提示
+      if (!this.isNetworkOnline || this.networkType === 'none') {
+        if (this.currentAssistantMessage) {
+          this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_OFFLINE
+        }
+        this.isResponding = false
+        this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+        return
+      }
+
+      const requestBody = {
+        sessionId: this.sessionId,
+        question: userInput,
+        botId: this.id,
+      }
+
+      const response = await requestChat(requestBody)
+      if (response && response._headers && response._headers['X-Conversation-ID']) {
+        this.sessionId = response._headers['X-Conversation-ID']
+        console.log('### Update SessionID (Legacy) ###', this.sessionId)
+      }
+      
+      if (this.currentRequestSeq !== reqSeq) return
+
+      if (this.manuallyInterrupted || !this.isResponding) {
+        return
+      }
+
+      const rawText = response && typeof response === 'string' ? String(response) : ''
+      console.log('### rawText ###:', rawText)
+      
+      if (rawText && (rawText.indexOf('event:message') !== -1 || rawText.indexOf('data:') !== -1)) {
+        const regex = /data:\s*([^\n]*)/g
+        let m
+        let parsedAny = false
+        while ((m = regex.exec(rawText)) !== null) {
+          const jsonStr = m[1] || ''
+          let obj = null
+          try {
+            obj = JSON.parse(jsonStr)
+          } catch (e) {
+            console.log('### parse json error ###:', e, jsonStr)
+          }
+          if (obj) {
+            this.handleStreamData(obj)
+            parsedAny = true
+          }
+        }
+        if (parsedAny) {
+          this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+          return
+        }
+      }
+
+      const data = typeof response === 'object' ? response : {}
+      if (data && (data.stage || data.status === 'error')) {
+        this.handleStreamData(data)
+        this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+      } else if (!this.assistantReceivedContent) {
+        if (this.currentAssistantMessage) {
+          const isOfflineNow = await new Promise(async (resolve) => {
+            try {
+              const type = await getNetworkType()
+              resolve(type === 'none')
+            } catch (e) {
+              resolve(!this.isNetworkOnline || this.networkType === 'none')
+            }
+          })
+
+          if (isOfflineNow) {
+            this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_OFFLINE
+          } else {
+            this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_UNABLE
+          }
+        }
+        this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+      }
+    } catch (err) {
+      console.error('sendRequestLegacy error:', err)
+      if (this.currentAssistantMessage) {
+        const isOfflineNow = await new Promise(async (resolve) => {
+          try {
+            const type = await getNetworkType()
+            resolve(type === 'none')
+          } catch (e) {
+            resolve(!this.isNetworkOnline || this.networkType === 'none')
+          }
+        })
+
+        if (isOfflineNow) {
+          if (!this.assistantReceivedTextContent) {
+            this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_OFFLINE
+          } else {
+            this.currentAssistantMessage.statusPrompt = MESSAGE_PROMPTS.STATUS_OFFLINE_INTERRUPTED
+          }
+        } else {
+          this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_UNABLE
+        }
+      }
+    } finally {
+      this.isResponding = false
+    }
+  },
+
+  
+  /* 处理流式数据 */
+  handleStreamData(result) {
+    if (!result) return
+
+    console.log('### handleStreamData 原始数据 ###:', JSON.stringify(result).substring(0, 200))
+
+    // 使用 apiHelper 解析响应
+    const parsed = parseResponse(result)
+    
+    console.log('### handleStreamData 解析后 ###:', JSON.stringify(parsed))
+    
+    // 处理错误状态
+    if (parsed.status === 'error') {
+      console.log('### handleStreamData error ###:', parsed.message)
+      if (this.currentAssistantMessage) {
+        this.currentAssistantMessage.statusPrompt = parsed.message || '请求失败'
+        this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+      }
+      return
+    }
+
+    const { stage, content, contentType } = parsed
+
+    // OpenAI 格式没有 stage 字段，直接处理 content
+    if (content) {
+      const text = String(content || '')
+      if (text) {
+        this.assistantReceivedContent = true
+        this.appendRichText(text)
+
+        if (
+          this.currentAssistantMessage &&
+          this.currentAssistantMessage.thinkingPrompt !== MESSAGE_PROMPTS.THINK_DONE
+        ) {
+          this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_DONE
+        }
+        this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+      }
+    } else if (stage === 'THINKING') {
+      // 思考阶段（简化版，不展示详情）
+      if (this.currentAssistantMessage) {
+        this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_SEARCHING
+      }
+    } else if (stage === 'ANSWERING') {
+      if (contentType === 'TEXT') {
+        const text = content || ''
+        if (text) {
+          this.assistantReceivedContent = true
+          this.appendRichText(String(text))
+
+          if (
+            this.currentAssistantMessage &&
+            this.currentAssistantMessage.thinkingPrompt !== MESSAGE_PROMPTS.THINK_DONE
+          ) {
+            this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_DONE
+          }
+          this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+        }
+      }
+    } else {
+      console.log('### 未识别的响应格式 ###, stage:', stage, 'content:', content)
+    }
+  },
+
+  /* 从 Markdown 中提取图片 URL */
+  extractImageUrlFromMarkdown(md) {
+    try {
+      const s = typeof md === 'string' ? md : ''
+      const m = s.match(/!\[[^\]]*\]\(\s*`?([^)`"\s]+?)`?(?:\s+"[^"]*")?\s*\)/)
+      return m && m[1] ? String(m[1]) : ''
+    } catch (e) {
+      return ''
+    }
+  },
+  
+  /* 追加富文本 */
+  appendRichText(text) {
+    if (!text) return
+
+    const items = this.currentAssistantMessage.contentItems || []
+    const pendingText = this.currentAssistantMessage._pendingText || ''
+    this.currentAssistantMessage._pendingText = ''
+
+    // 查找最后一个可追加的富文本项
+    let lastRichTextIndex = -1
+    let lastRichTextItem = null
+    if (items.length > 0) {
+      const tail = items[items.length - 1]
+      if (tail.type === 'rich_text' && !tail.isImage) {
+        lastRichTextIndex = items.length - 1
+        lastRichTextItem = tail
+      }
+    }
+
+    // 按图片语法拆分
+    const splitBySegments = (md) => {
+      const rebuildMdImage = (alt, url, title) => {
+        const safeAlt = alt || ''
+        const safeUrl = url || ''
+        const safeTitle = title ? ` "${title}"` : ''
+        return `![${safeAlt}](${safeUrl}${safeTitle})`
+      }
+      const combinedRegex = /!\[([^\]]*)\]\(\s*`?([^)`"\s]+?)`?(?:\s+\"([^\"]*)\")?\s*\)/g
+      const segments = []
+      let pendingTail = ''
+      let lastIdx = 0
+      let match
+      
+      while ((match = combinedRegex.exec(md)) !== null) {
+        if (match.index > lastIdx) {
+          const textSeg = md.slice(lastIdx, match.index)
+          if (String(textSeg).trim())
+            segments.push({ kind: 'text', content: textSeg })
+        }
+        {
+          const alt = match[1] || ''
+          const url = match[2] || ''
+          const title = match[3] || ''
+          segments.push({ kind: 'image', content: rebuildMdImage(alt, url, title) })
+        }
+        lastIdx = match.index + match[0].length
+      }
+      
+      if (lastIdx < md.length) {
+        const tail = md.slice(lastIdx)
+        const looksLikeTokenStart = (s) => {
+          if (!s) return false
+          return s.startsWith('![')
+        }
+        if (looksLikeTokenStart(tail)) {
+          pendingTail = tail
+        } else {
+          if (String(tail).trim()) segments.push({ kind: 'text', content: tail })
+        }
+      }
+      return { segments, pendingTail }
+    }
+
+    if (lastRichTextItem) {
+      const combined = (lastRichTextItem.content || '') + pendingText + text
+      const { segments, pendingTail } = splitBySegments(combined)
+      this.currentAssistantMessage._pendingText = pendingTail
+      const hasText = segments.some((s) => s.kind === 'text' && String(s.content || '').trim())
+      if (hasText) this.assistantReceivedTextContent = true
+
+      if (segments.length <= 1 && (segments.length === 0 || segments[0].kind === 'text')) {
+        const updatedItem = {
+          type: 'rich_text',
+          content: segments.length === 1 ? segments[0].content : '',
+          key: lastRichTextItem.key,
+          isImage: false,
+        }
+        this.currentAssistantMessage.contentItems.splice(lastRichTextIndex, 1, updatedItem)
+      } else {
+        let insertPos = lastRichTextIndex + 1
+        let segStartIndex = 0
+
+        if (segments[0] && segments[0].kind === 'text') {
+          const updatedItem = {
+            type: 'rich_text',
+            content: segments[0].content,
+            key: lastRichTextItem.key,
+            isImage: false,
+          }
+          this.currentAssistantMessage.contentItems.splice(lastRichTextIndex, 1, updatedItem)
+          segStartIndex = 1
+        } else {
+          if (segments[0].kind === 'image') {
+            const updatedItem = {
+              type: 'rich_text',
+              content: segments[0].content,
+              key: lastRichTextItem.key,
+              isImage: true,
+              imageUrl: this.extractImageUrlFromMarkdown(segments[0].content),
+            }
+            this.currentAssistantMessage.contentItems.splice(lastRichTextIndex, 1, updatedItem)
+            insertPos = lastRichTextIndex + 1
+            segStartIndex = 1
+          }
+        }
+
+        for (let i = segStartIndex; i < segments.length; i++) {
+          const seg = segments[i]
+          if (seg.kind === 'image') {
+            this.currentAssistantMessage.contentItems.splice(insertPos, 0, {
+              type: 'rich_text',
+              content: seg.content,
+              key: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              isImage: true,
+              imageUrl: this.extractImageUrlFromMarkdown(seg.content),
+            })
+          } else if (seg.kind === 'text') {
+            if (String(seg.content || '').trim()) this.assistantReceivedTextContent = true
+            this.currentAssistantMessage.contentItems.splice(insertPos, 0, {
+              type: 'rich_text',
+              content: seg.content,
+              key: `rich_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              isImage: false,
+            })
+          }
+          insertPos++
+        }
+      }
+    } else {
+      const { segments, pendingTail } = splitBySegments(pendingText + text)
+      this.currentAssistantMessage._pendingText = pendingTail
+      const hasText = segments.some((s) => s.kind === 'text' && String(s.content || '').trim())
+      if (hasText) this.assistantReceivedTextContent = true
+      for (const seg of segments) {
+        if (seg.kind === 'image') {
+          items.push({
+            type: 'rich_text',
+            content: seg.content,
+            key: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            isImage: true,
+            imageUrl: this.extractImageUrlFromMarkdown(seg.content),
+          })
+        } else if (seg.kind === 'text') {
+          if (String(seg.content || '').trim()) this.assistantReceivedTextContent = true
+          items.push({
+            type: 'rich_text',
+            content: seg.content,
+            key: `rich_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            isImage: false,
+          })
+        }
+      }
+      this.currentAssistantMessage.contentItems = items
+    }
+  },
+
+
+  /* 滚动到底部 */
+  scrollToBottom(opts) {
+    const options = opts && typeof opts === 'object' ? opts : {}
+    const useNextTick = options.nextTick === true
+    const behavior = options.behavior || 'instant'
+    
+    const doScroll = (behavior) => {
+      const listEl = this.$element('chatList')
+      if (listEl && typeof listEl.scrollBy === 'function') {
+        listEl.scrollBy({ top: 9999999999, behavior })
+      }
+      this.isAtBottom = true
+      this.showJumpToBottom = false
+    }
+    
+    if (useNextTick) {
+      this.$nextTick(() => doScroll(behavior))
+    } else {
+      doScroll(behavior)
+    }
+    
+    setTimeout(() => {
+      doScroll('smooth')
+    }, 200)
+  },
+  
+  /* 聊天列表滚动事件 */
+  onChatScroll(e) {
+    const { scrollY, scrollState } = e || {}
+    const isDown = typeof scrollY === 'number' ? scrollY > this.lastScrollY : false
+    if (typeof scrollY === 'number') {
+      if (scrollY > 0) this.scrollableDetected = true
+      if (scrollState === 1 && scrollY !== this.lastScrollY) this.isAtBottom = false
+    }
+
+    if (this.scrollableDetected && !this.isAtBottom && scrollState === 1 && isDown) {
+      this.showJumpToBottom = true
+    }
+
+    this.lastScrollY = typeof scrollY === 'number' ? scrollY : this.lastScrollY
+  },
+  
+  /* 聊天列表滚动到底部事件 */
+  onChatScrollBottom() {
+    console.log('### 滚到底了 ###')
+    this.isAtBottom = true
+    this.showJumpToBottom = false
+  },
+  
+  /* 点击"到底"按钮 */
+  jumpToBottom() {
+    this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+    this.isAtBottom = true
+    this.showJumpToBottom = false
+  },
+  
+  /* 手动停止回答 */
+  stopResponding() {
+    if (!this.isResponding) return
+    this.manuallyInterrupted = true
+    try {
+      if (this.streamTask && typeof this.streamTask.abort === 'function') this.streamTask.abort()
+    } catch (e) {
+      console.warn('停止流式任务失败:', e)
+    }
+    this.isResponding = false
+    this.currentRequestSeq = ''
+
+    if (!this.currentAssistantMessage) {
+      this.currentAssistantMessage = {
+        role: 'assistant',
+        content: [{ type: 'text', text: '' }],
+        contentItems: [],
+        thinkingPrompt: MESSAGE_PROMPTS.THINK_TERMINATED,
+        statusPrompt: '',
+      }
+      this.messages.push(this.currentAssistantMessage)
+    }
+    
+    if (this.currentAssistantMessage) {
+      if (!this.assistantReceivedTextContent) {
+        console.log('### 手动中断，未收到内容 ###')
+        this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_TERMINATED
+        this.currentAssistantMessage.statusPrompt = ''
+      } else {
+        console.log('### 手动中断，已收到内容 ###')
+        this.currentAssistantMessage.statusPrompt = MESSAGE_PROMPTS.STATUS_INTERRUPTED
+      }
+    }
+    
+    this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+  },
+  
+  /* 点击"刷新重试" */
+  retryMessage(index) {
+    try {
+      if (this.isResponding) {
+        if (this.isLegacyMode && !this.assistantReceivedTextContent) {
+          prompt.showToast({ message: '正在思考中，请稍后再试' })
+          return
+        }
+        this.stopResponding()
+      }
+
+      const assistantIdx = typeof index === 'number' ? index : -1
+      if (assistantIdx <= 0 || !Array.isArray(this.messages)) return
+      const assistantMsg = this.messages[assistantIdx]
+      let userIdx = assistantIdx - 1
+      let userMsg = this.messages[userIdx]
+      if (!(userMsg && userMsg.role === 'user')) {
+        for (let i = assistantIdx - 1; i >= 0; i--) {
+          if (this.messages[i] && this.messages[i].role === 'user') {
+            userIdx = i
+            userMsg = this.messages[i]
+            break
+          }
+        }
+      }
+
+      if (!userMsg || userMsg.role !== 'user') return
+      const contentArr = Array.isArray(userMsg.content) ? userMsg.content : []
+      const first = contentArr[0]
+      const userText =
+        first && (first.text || first.content) ? String(first.text || first.content) : ''
+      if (!userText || !String(userText).trim()) return
+
+      this.inputText = userText
+      this.sendMessage()
+    } catch (e) {
+      console.warn('retryMessage failed:', e)
+    }
+  },
+  
+  /* 新建会话 */
+  async createNewChat() {
+    console.log('### createNewChat ###')
+    if (this.isResponding) {
+      if (this.isLegacyMode && !this.assistantReceivedTextContent) {
+        prompt.showToast({ message: '正在思考中，请稍后再试' })
+        return
+      }
+      this.stopResponding()
+    }
+
+    this.messages = []
+    this.currentAssistantMessage = null
+    this.inputText = ''
+    this.inputHeight = this.lineHeight
+    this.isResponding = false
+    this.streamTask = null
+    this.manuallyInterrupted = false
+    this.assistantReceivedContent = false
+    this.assistantReceivedTextContent = false
+    this.showIntro = true
+    this.showMessages = false
+    this.showJumpToBottom = false
+    this.$element('composeInput').focus({ focus: false })
+    this.sessionId = ''
+  },
+  
+  /* 容器返回 */
+  async leftclick() {
+    this.$element('composeInput').focus({ focus: false })
+    router.back()
+  },
+  
+  onBackPress() {
+    this.leftclick()
+    return true
+  },
+  
+  /* 发送图标点击 */
+  onSendIconClick() {
+    if (this.isResponding) {
+      if (this.isLegacyMode && !this.assistantReceivedTextContent) {
+        prompt.showToast({ message: '正在思考中，请稍后再试' })
+        return
+      }
+      this.stopResponding()
+    } else {
+      this.sendMessage()
+    }
+  },
+  
+  /* 初始化网络监控 */
+  initNetworkMonitor() {
+    try {
+      getNetworkType()
+        .then((type) => {
+          this.networkType = type
+          this.isNetworkOnline = type !== 'none'
+        })
+        .catch(() => {
+          this.networkType = 'others'
+          this.isNetworkOnline = true
+        })
+    } catch (e) {
+      this.networkType = 'others'
+      this.isNetworkOnline = true
+    }
+    
+    network.subscribe({
+      reserved: true,
+      callback: (data) => {
+        const type = data && data.type ? String(data.type) : 'others'
+        this.networkType = type
+        this.isNetworkOnline = type !== 'none'
+        if (type === 'none') {
+          if (this.isResponding) {
+            try {
+              if (this.streamTask && typeof this.streamTask.cancel === 'function') {
+                this.streamTask.cancel()
+              } else if (this.streamTask && typeof this.streamTask.abort === 'function') {
+                this.streamTask.abort()
+              }
+            } catch (err) {}
+            this.isResponding = false
+            if (this.currentAssistantMessage) {
+              if (!this.assistantReceivedTextContent) {
+                this.currentAssistantMessage.thinkingPrompt = MESSAGE_PROMPTS.THINK_OFFLINE
+                this.currentAssistantMessage.statusPrompt = ''
+              } else {
+                this.currentAssistantMessage.statusPrompt =
+                  MESSAGE_PROMPTS.STATUS_OFFLINE_INTERRUPTED
+              }
+            }
+            this.scrollToBottom({ nextTick: true, behavior: 'instant' })
+          }
+        }
+      },
+      fail: () => {},
+    })
+  },
+}
+</script>
+
+
+<style lang="less">
+.content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  background-color: #f7f7f7;
+}
+
+/* 聊天列表 */
+.chat-list {
+  height: 100%;
+  flex: 1;
+  padding: 0 12px;
+}
+
+/* 聊天项 */
+.chat-item {
+  display: flex;
+  padding: 20px 10px;
+}
+
+/* 用户消息 */
+.user-message {
+  justify-content: flex-start;
+  background-color: rgba(52, 130, 255, 0.1);
+  border-radius: 16px;
+  padding: 16px;
+  max-width: 100%;
+  margin-left: auto;
+}
+
+.user-text {
+  font-family: MiSans VF;
+  color: #000000;
+  font-size: 16px;
+  line-height: 26px;
+}
+
+/* 输入区域 */
+.input-area {
+  flex-direction: row;
+  padding: 10px 22px;
+  background-color: #f7f7f7;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 90;
+}
+
+/* 输入组合容器 */
+.compose-wrapper {
+  flex: 1;
+  flex-direction: row;
+  background-color: #ffffff;
+  border-radius: 12px;
+  padding: 12px;
+  align-items: flex-start;
+}
+
+/* 多行输入框 */
+.compose-input {
+  flex: 1;
+  color: #333333;
+  font-size: 15px;
+  line-height: 21px;
+  background-color: #ffffff;
+  caret-color: #3482ff;
+  border: 0;
+  padding: 0 8px;
+}
+
+/* 发送按钮 */
+.send-icon {
+  width: 32px;
+  height: 32px;
+  margin-left: 10px;
+}
+
+/* 跳转到底部按钮 */
+.jump-to-bottom {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 95;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.jump-to-bottom-icon {
+  width: 40px;
+  height: 40px;
+}
+
+/* 助手内容容器 */
+.assistant-rich {
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+}
+
+.assistant-image {
+  border-radius: 16px;
+  width: 352px;
+  height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.assistant-image-item {
+  width: 352px;
+  height: 180px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+</style>

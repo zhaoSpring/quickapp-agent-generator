@@ -1,0 +1,467 @@
+<import name="code-block" src="./codeBlock.ux"></import>
+<template>
+  <div class="markdown-container">
+    <block for="{{ segments }}">
+      <!-- 不含代码块的段落 -->
+      <!-- richtext 自带padding：8px的效果，去不掉 -->
+      <richtext
+        if="{{ $item.type === 'richtext' }}"
+        type="html"
+        style="background-color: transparent"
+      >
+        {{ $item.content }}
+      </richtext>
+
+      <!-- 代码块 -->
+      <code-block
+        if="{{ $item.type === 'code' }}"
+        code="{{ $item.content }}"
+        language="{{ $item.lang }}"
+      ></code-block>
+    </block>
+  </div>
+</template>
+
+<script>
+/**
+ * Markdown渲染组件
+ *
+ * @description 将Markdown文本转换为HTML并应用美观样式
+ *
+ * @requires 使用该组件需要满足以下条件：
+ * 1. 安装依赖包：
+ *    - marked (^4.3.0) - 用于Markdown转HTML
+ *    - highlight.js (10.7.3) - 用于代码语法高亮
+ * 2. 项目根目录需包含 babel.config.js 配置文件
+ */
+import { marked } from 'marked'
+
+export default {
+  props: {
+    data: {
+      type: String,
+    },
+    docs: {
+      type: Array,
+      default: [],
+    },
+    pStyle: {
+      type: String,
+      default: '',
+    },
+  },
+  computed: {
+    segments() {
+      const markdownText = this.data || ''
+
+      // 配置 marked
+      const rendererMD = new marked.Renderer()
+      marked.setOptions({
+        renderer: rendererMD,
+        gfm: true,
+        pedantic: false,
+        sanitize: false,
+        tables: true,
+        breaks: false,
+        smartLists: true,
+        smartypants: false,
+        xhtml: false,
+      })
+
+      // 在 Markdown 渲染前进行轻量规范化
+      const normalized = this.normalizeMarkdown(String(markdownText))
+
+      // 使用 lexer 获取 tokens
+      const tokens = marked.lexer(normalized)
+      const result = []
+      let currentTokens = []
+
+      // 处理累积 token 的辅助函数
+      const processCurrent = () => {
+        if (currentTokens.length === 0) return
+
+        // 将链接定义复制到块中，以便引用链接正常工作
+        currentTokens.links = tokens.links
+
+        // 将 token 块解析为 HTML
+        const htmlRaw = marked.parser(currentTokens)
+
+        // 后处理
+        let htmlString = this.fixStrongAroundAnchors(htmlRaw)
+
+        // 处理引用标记
+        htmlString = this.processCitations(htmlString)
+
+        // 添加样式
+        const styledHtml = this.addMarkdownStyles(htmlString)
+
+        // 表格包裹
+        const tableRegex = /(<table[\s\S]*?<\/table>)/gi
+        const finalHtml = styledHtml.replace(tableRegex, (match) => {
+          return `<div class="table-outer">${match}</div>`
+        })
+
+        result.push({
+          type: 'richtext',
+          content: finalHtml,
+        })
+        currentTokens = []
+      }
+
+      for (const token of tokens) {
+        // 仅将顶层围栏代码块作为单独组件处理
+        if (token.type === 'code') {
+          processCurrent()
+          result.push({
+            type: 'code',
+            content: token.text,
+            lang: token.lang,
+          })
+        } else {
+          currentTokens.push(token)
+        }
+      }
+      processCurrent()
+
+      return result
+    },
+  },
+  /**
+   * 规范化Markdown文本，将中文全角括号替换为标准括号
+   * @param {string} md - 原始Markdown文本
+   * @returns {string} - 规范化后的Markdown文本
+   */
+  normalizeMarkdown(md) {
+    return String(md || '').replace(/\[([^\]]+)\]（([\s\S]*?)）/g, '[$1]($2)')
+  },
+  /**
+   * 修复Markdown渲染中，粗体包裹<a>标签的问题
+   * @param {string} html - 原始HTML字符串
+   * @returns {string} - 修复后的HTML字符串
+   */
+  fixStrongAroundAnchors(html) {
+    return String(html || '').replace(/\*\*\s*(<a[\s\S]*?<\/a>)\s*\*\*/gi, '<strong>$1</strong>')
+  },
+  /**
+   * 处理引用标记 [^x^] 为可点击的链接
+   * @param {string} html - 原始HTML字符串
+   * @returns {string} - 处理后的HTML字符串
+   */
+  processCitations(html) {
+    if (!html) return ''
+    return html.replace(/\[\^(\d+)\^\]/g, (match, p1) => {
+      const index = parseInt(p1, 10)
+      const doc = this.docs && this.docs[index]
+      if (doc && doc.source) {
+        return `<a href="${doc.source}" class="citation-link">${index}</a>`
+      }
+      return match
+    })
+  },
+  /**
+   * 添加Markdown内容的美观样式
+   * @param {string} htmlString - 原始HTML字符串
+   * @returns {string} - 带样式的HTML字符串
+   */
+  addMarkdownStyles(htmlString) {
+    const styles = `
+		<style>
+		/* 基础样式 */
+		.markdown-content {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+			color: #000000;
+			border-radius: 10px;
+		}
+		
+		/* 标题样式 */
+		.markdown-content h1, 
+		.markdown-content h2,
+		.markdown-content h3 {
+			font-family: MiSans VF;
+			font-weight: 450;
+			font-style: Demibold;
+			font-size: 18px;
+			leading-trim: NONE;S
+			line-height: 150%;
+			letter-spacing: 0%;
+		}
+		
+		.markdown-content h4,
+		.markdown-content h5,
+		.markdown-content h6 {
+			font-family: MiSans VF;
+			font-weight: 450;
+			font-style: Demibold;
+			font-size: 16px;
+			leading-trim: NONE;
+			line-height: 150%;
+			letter-spacing: 0%;
+		}
+		
+		/* 段落样式 */
+		.markdown-content p {
+			font-family: MiSans VF;
+			font-style: Regular;
+			font-size: 16px;
+			leading-trim: NONE;
+			line-height: 160%;
+			letter-spacing: 0%;
+			vertical-align: middle;
+			${this.pStyle || ''}
+		}
+		
+		/* 链接样式 */
+		.markdown-content a {
+			color: #3482ff;
+			text-decoration: none;
+			border-bottom: 1px solid transparent;
+			transition: all 0.3s ease;
+		}
+		
+		.markdown-content a:hover {
+			color: #2980b9;
+			border-bottom-color: #2980b9;
+		}
+
+		/* 出处引用样式 */
+		.markdown-content .citation-link {
+			display: inline-block;
+			height: 20px;
+			line-height: 20px;
+			padding: 0 6px;
+			text-align: center;
+			border-radius: 10px;
+			background-color: rgba(140, 147, 176, 0.1);
+			color: rgba(0, 0, 0, 0.6);
+			font-size: 13px;
+			margin: 0 2px;
+			text-decoration: none;
+			vertical-align: middle;
+			width: auto;
+		}
+
+		.markdown-content .citation-link:hover {
+			color: rgba(0, 0, 0, 0.6);
+			border-bottom: none;
+		}
+		
+		/* 列表样式 */
+		.markdown-content ul, .markdown-content ol {
+			margin: 12px 0;
+			padding-left: 25px;
+		}
+
+		.markdown-content li {
+			margin: 6px 0;
+			line-height: 1.5;
+		}
+
+		/* 【无序列表】：统一缩进并移除原生符号 */
+		.markdown-content ul {
+			list-style: none;
+			padding-left: 28px;
+		}
+		/* 【无序列表项】：支持传入的 pStyle */
+		.markdown-content ul > li {
+			position: relative;
+			${this.pStyle || ''}
+		}
+		/* 【无序列表圆点】：默认实心圆 */
+		.markdown-content ul > li::before {
+			content: '';
+			position: absolute;
+			left: -18px;
+			top: calc(0.75em - 2.5px);
+			width: 5px;
+			height: 5px;
+			border-radius: 50%;
+			background: currentColor;
+			box-sizing: border-box;
+		}
+
+		/* 【有序列表】：统一缩进并移除原生编号 */
+		.markdown-content ol {
+			list-style: none;        /* 关键 */
+			counter-reset: md-ol;
+			padding-left: 28px;      /* 给编号留空间 */
+		}
+
+		/* 【有序列表项】：支持传入的 pStyle */
+		.markdown-content ol > li {
+			counter-increment: md-ol;
+			position: relative;
+			${this.pStyle || ''}
+		}
+
+		/* 【有序列表项】：自定义数字样式 */
+		.markdown-content ol > li::before {
+			content: counter(md-ol) ".";
+			position: absolute;
+			left: -22px;
+			color: currentColor;
+			font-family: MiSans VF;
+		}
+
+		/* 【无序列表嵌套层级样式】：次级为空心圆，三级为小方块 */
+		.markdown-content ul ul > li::before {
+			background: transparent;
+			border: 1px solid currentColor;
+		}
+		.markdown-content ul ul ul > li::before {
+			border-radius: 3px;
+			width: 6px;
+			height: 6px;
+			background: currentColor;
+			border: none;
+		}
+		/* 有序列表内的无序列表保持相同风格 */
+		.markdown-content ol ul > li::before {
+			background: transparent;
+			border: 1px solid currentColor;
+		}
+		
+		/* 引用块样式 */
+		.markdown-content blockquote {
+			margin: 16px 0;
+			padding: 12px;
+			background: rgba(52, 130, 255, 0.06);
+			border-left: 2px solid #3498db;
+			border-radius: 0 8px 8px 0;
+			font-style: italic;
+			color: #555;
+		}
+		
+		.markdown-content blockquote p {
+			margin: 0;
+		}
+		
+		/* 代码样式 */
+		.markdown-content code {
+			background: #f1f2f6;
+			color: #e74c3c;
+			padding: 2px 6px;
+			border-radius: 3px;
+			font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+			font-size: 0.9em;
+		}
+		
+		/* 表格样式 */
+		.markdown-content .table-outer {
+			overflow-x: auto; /* 核心：超宽时显示横向滚动条 */
+			-webkit-overflow-scrolling: touch; /* 优化移动端滚动体验（平滑） */
+			padding-bottom: 8px; /* 避免滚动条遮挡表格底部边框 */
+        }
+
+			.markdown-content table {
+				width: 100%;
+				border-collapse: collapse;
+				background: #fff;
+				border-radius: 16px;
+				overflow: hidden;
+			}
+
+			.markdown-content th, .markdown-content td {
+				padding: 16px 18px;
+				text-align: left;
+				border-bottom: 1px solid #e1e8ed;
+			}
+
+			.markdown-content th:not(:last-child),
+			.markdown-content td:not(:last-child) {
+				border-right: 1px solid #e1e8ed;
+			}
+
+			.markdown-content th {
+				background: #eaecf1;
+				font-size: 16px;
+				font-weight: 600;
+				color: #2c3e50;
+				white-space: nowrap;
+				overflow: visible;
+				text-overflow: clip;
+			}
+		
+			.markdown-content td {
+				font-size: 14px;
+				background: #ffffff;
+				vertical-align: top;
+				white-space: normal;
+			}
+
+			.markdown-content tbody tr:last-child td {
+				border-bottom: 0;
+			}
+
+			.markdown-content th:first-child,
+			.markdown-content td:first-child {
+				width: 120px;
+			}
+		
+		.markdown-content tr:hover {
+			background: #f8f9fa;
+		}
+		
+		/* 分割线样式 */
+		.markdown-content hr {
+			border: none;
+			height: 1px;
+			background: rgba(140, 147, 176, 0.3);
+			margin: 15px 0;
+		}
+		
+		/* 图片样式 */
+		.markdown-content img {
+			max-width: 100%;
+			height: auto;
+			border-radius: 8px;
+			/* 兜底背景图：当图片加载失败时保持可见区域并显示占位 */
+			/*
+			background-image: url('https://cdn.cnbj1.fds.api.mi-img.com/ai-agent/yuanqi/image-fallback.svg');
+			background-size: contain;
+			background-position: center;
+			background-repeat: no-repeat;
+			display: inline-block;
+			min-height: 96px; /* 防止高度为 0 导致背景不可见 */
+			*/
+		}
+		
+		/* 强调样式 */
+		.markdown-content strong {
+			font-family: MiSans VF;
+			font-weight: 450;
+			font-style: Demibold;
+			font-size: 16px;
+			leading-trim: NONE;
+			line-height: 150%;
+			letter-spacing: 0%;
+		}
+		
+		.markdown-content em {
+			font-style: italic;
+			color: #7f8c8d;
+		}
+		
+		/* 删除线样式 */
+		.markdown-content del {
+			text-decoration: line-through;
+			color: #95a5a6;
+		}
+		
+		/* 任务列表样式 */
+		.markdown-content input[type="checkbox"] {
+			margin-right: 8px;
+		}
+		</style>
+		`
+
+    return styles + `<div class="markdown-content">${htmlString}</div>`
+  },
+}
+</script>
+
+<style>
+.markdown-container {
+  flex-direction: column;
+  align-items: center;
+}
+</style>

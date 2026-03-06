@@ -1,0 +1,119 @@
+<template>
+  <div show="{{ visible }}" class="dialog-overlay" onclick="handleOverlayClick">
+    <div class="dialog-content" onclick="handleContentClick">
+      <text class="dialog-title">新建对话</text>
+      <text class="dialog-message">确定要新建对话吗？当前对话内容将被清空。</text>
+      <div class="dialog-actions">
+        <div class="dialog-button cancel" onclick="handleCancel">
+          <text class="button-text">取消</text>
+        </div>
+        <div class="dialog-button confirm" onclick="handleConfirm">
+          <text class="button-text confirm-text">确定</text>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    visible: {
+      type: Boolean,
+      default: false,
+    },
+  },
+  
+  handleOverlayClick() {
+    console.log('### 点击遮罩层 ###')
+    this.$emit('close')
+  },
+  
+  handleContentClick(e) {
+    // 阻止事件冒泡到遮罩层
+    if (e && e.stopPropagation) {
+      e.stopPropagation()
+    }
+  },
+  
+  handleCancel() {
+    console.log('### 点击取消 ###')
+    this.$emit('close')
+  },
+  
+  handleConfirm() {
+    console.log('### 点击确定 ###')
+    this.$emit('ok')
+  },
+}
+</script>
+
+<style lang="less">
+.dialog-overlay {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  justify-content: center;
+  align-items: center;
+}
+
+.dialog-content {
+  width: 300px;
+  background-color: #ffffff;
+  border-radius: 16px;
+  padding: 24px;
+  flex-direction: column;
+}
+
+.dialog-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #000000;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.dialog-message {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.6);
+  text-align: center;
+  line-height: 22px;
+  margin-bottom: 24px;
+}
+
+.dialog-actions {
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.dialog-button {
+  flex: 1;
+  height: 44px;
+  border-radius: 12px;
+  justify-content: center;
+  align-items: center;
+}
+
+.dialog-button.cancel {
+  background-color: #f2f3f5;
+  margin-right: 8px;
+}
+
+.dialog-button.confirm {
+  background-color: #3482ff;
+  margin-left: 8px;
+}
+
+.button-text {
+  font-size: 16px;
+  color: #666666;
+}
+
+.button-text.confirm-text {
+  color: #ffffff;
+}
+</style>

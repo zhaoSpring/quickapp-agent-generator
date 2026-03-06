@@ -1,0 +1,72 @@
+{
+    "package": "{{PACKAGE_NAME}}",
+    "name": "{{APP_NAME}}",
+    "versionName": "1.0.0",
+    "versionCode": 1000,
+    "minPlatformVersion": 1080,
+    "icon": "/assets/images/logo.png",
+    "features": [
+        {
+            "name": "system.prompt"
+        },
+        {
+            "name": "system.router"
+        },
+        {
+            "name": "system.fetch"
+        },
+        {
+            "name": "system.request"
+        },
+        {
+            "name": "system.requesttask"
+        },
+        {
+            "name": "system.device"
+        },
+        {
+            "name": "system.clipboard"
+        },
+        {
+            "name": "system.network"
+        },
+        {
+            "name": "system.media"
+        }
+    ],
+    "permissions": [
+        {
+            "origin": "*"
+        }
+    ],
+    "config": {
+        "designWidth": 392,
+        "logLevel": "debug",
+        "network": {
+            "connectTimeout": 100000,
+            "readTimeout": 100000,
+            "writeTimeout": 100000
+        }
+    },
+    "router": {
+        "entry": "pages/Index",
+        "pages": {
+            "pages/Index": {
+                "component": "index"
+            }
+        }
+    },
+    "display": {
+        "titleBar": false,
+        "menu": false,
+        "menuBarData": {
+            "menuBar": false
+        },
+        "statusBarBackgroundColor": "#f7f7f7",
+        "navigationBarImmersive": false,
+        "statusBarImmersive": true,
+        "windowSoftInputMode": "adjustResize",
+        "statusBarBackgroundOpacity": 0,
+        "textSizeAdjust": "auto"
+    }
+}

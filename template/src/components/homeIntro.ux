@@ -1,0 +1,115 @@
+<template>
+  <div class="intro-wrapper">
+    <image if="{{ agentInfo.icon }}" class="intro-avatar" src="{{ agentInfo.icon }}"></image>
+    <div class="intro-content">
+      <text if="{{ agentInfo.description || agentInfo.prologue }}" class="intro-text">{{
+        agentInfo.description || agentInfo.prologue
+      }}</text>
+      <div
+        if="{{ agentInfo.openingQuestions && agentInfo.openingQuestions.length }}"
+        class="intro-questions"
+      >
+        <div
+          class="intro-question-item"
+          for="{{ agentInfo.openingQuestions.slice(0, 3) }}"
+          onclick="useSuggestion($item)"
+        >
+          <image class="intro-star" src="/assets/images/icon-intro-star.svg"></image>
+          <text class="intro-question">{{ $item }}</text>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+export default {
+  props: {
+    agentInfo: {
+      type: Object,
+      default: () => ({
+        agentName: '',
+        icon: '',
+        description: '',
+        userName: '',
+        userCount: 0,
+      }),
+    },
+  },
+  useSuggestion(question) {
+    this.$emit('suggestion', { question })
+  },
+}
+</script>
+
+<style lang="less">
+.intro-wrapper {
+  display: flex;
+  flex: 1;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 0 20px;
+}
+
+.intro-avatar {
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  margin: 20px 0;
+}
+
+/* 内容区左对齐 */
+.intro-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+}
+
+/* 引导语白色气泡 */
+.intro-text {
+  background-color: #ffffff;
+  color: #000000;
+  font-size: 16px;
+  line-height: 22px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+
+/* 示例问题整体左对齐 */
+.intro-questions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+/* 每个问题白底自适应宽度 */
+.intro-question-item {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  background-color: #ffffff;
+  border-radius: 10px;
+  padding: 10px 16px;
+  margin-bottom: 10px;
+  max-width: 100%;
+}
+
+.intro-star {
+  width: 12px;
+  height: 12px;
+  margin-top: 4px;
+  margin-right: 6px;
+}
+
+.intro-question {
+  color: #000000;
+  font-size: 16px;
+  line-height: 22px;
+  lines: 2;
+  text-overflow: ellipsis;
+}
+</style>

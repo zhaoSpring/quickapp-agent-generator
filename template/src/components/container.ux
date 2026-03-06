@@ -1,0 +1,108 @@
+<import name="title-bar" src="@components/titleBar.ux"></import>
+<import name="new-chat-dialog" src="@components/newChatDialog.ux"></import>
+
+<template>
+  <div class="container">
+    <title-bar
+      @leftclick="leftclick"
+      @titleclick="handleTitleClick"
+      custom-back="{{ customBack }}"
+      agent-info="{{ agentInfo }}"
+    >
+      <image
+        slot="right"
+        @click="handleRightClick"
+        class="right-icon"
+        src="/assets/images/new-chat.svg"
+      ></image>
+    </title-bar>
+    
+    <!-- 新建对话弹框 -->
+    <new-chat-dialog
+      @close="closeNewChat"
+      @ok="createNewChat"
+      visible="{{ showNewChat }}"
+    ></new-chat-dialog>
+
+    <!-- 内容 -->
+    <slot name="default"></slot>
+  </div>
+</template>
+
+<script>
+import prompt from '@system.prompt'
+
+export default {
+  props: {
+    id: {
+      type: String,
+      default: '',
+    },
+    customBack: {
+      type: Boolean,
+      default: false,
+    },
+    confirmOnNewChat: {
+      type: Boolean,
+      default: true,
+    },
+  },
+  
+  data() {
+    return {
+      agentInfo: {
+        agentName: '',
+        icon: '',
+        description: '',
+      },
+      showNewChat: false,
+    }
+  },
+  
+  onInit() {
+    // 初始化时不显示弹窗
+    this.showNewChat = false
+  },
+  
+  onReady() {},
+
+  handleTitleClick() {
+    // 简化版不显示智能体信息弹窗
+  },
+  
+  leftclick() {
+    this.$emit('leftclick')
+  },
+  
+  handleRightClick() {
+    if (this.confirmOnNewChat) {
+      this.showNewChat = true
+    } else {
+      prompt.showToast({ message: '已经在新对话中' })
+    }
+  },
+  
+  closeNewChat() {
+    this.showNewChat = false
+  },
+  
+  createNewChat() {
+    this.showNewChat = false
+    this.$emit('createnewchat')
+  },
+}
+</script>
+
+<style lang="less">
+.container {
+  display: flex;
+  flex-direction: column;
+}
+
+.right-icon {
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+}
+</style>

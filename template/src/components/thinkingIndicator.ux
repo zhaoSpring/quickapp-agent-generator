@@ -1,0 +1,120 @@
+<template>
+  <div class="thinking-inline">
+    <div class="thinking-item">
+      <image class="thinking-icon" src="/assets/images/icon-thinking.svg"></image>
+      <stack if="{{ !containsRetry(prompt) }}" class="thinking-text-box">
+        <text class="thinking-text">{{ prompt }}</text>
+        <div if="{{ isThinking() }}" class="shine-overlay"></div>
+      </stack>
+      <div if="{{ containsRetry(prompt) }}" class="retry-inline" onclick="onRetry">
+        <text class="thinking-text">{{ getStatusPrefix(prompt) }}</text>
+        <text class="status-link">刷新重试</text>
+        <image class="status-icon" src="/assets/images/icon-refresh.svg"></image>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+import { MESSAGE_PROMPTS } from '/src/constants/index'
+
+export default {
+  props: {
+    prompt: { type: String },
+  },
+  
+  isThinking() {
+    return String(this.prompt || '') === MESSAGE_PROMPTS.THINK_SEARCHING
+  },
+  
+  containsRetry(text) {
+    const t = String(text || '')
+    return t.indexOf(MESSAGE_PROMPTS.RETRY_SUFFIX) !== -1
+  },
+  
+  getStatusPrefix(text) {
+    const t = String(text || '')
+    return t.replace(MESSAGE_PROMPTS.RETRY_SUFFIX, '')
+  },
+  
+  onRetry() {
+    this.$emit('retry')
+  },
+}
+</script>
+
+<style lang="less">
+.thinking-inline {
+  width: 100%;
+  flex-direction: column;
+}
+
+.thinking-item {
+  flex-direction: row;
+  align-items: center;
+}
+
+.thinking-icon {
+  width: 18px;
+  height: 18px;
+  margin-right: 10px;
+}
+
+.thinking-text {
+  color: #000000;
+  font-size: 16px;
+  line-height: 24px;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+
+.thinking-text-box {
+  flex: 1;
+}
+
+.shine-overlay {
+  width: 40px;
+  height: 25px;
+  border-radius: 24px;
+  background: linear-gradient(
+    90deg,
+    rgba(247, 247, 247, 0) 0%,
+    rgba(247, 247, 247, 0.7) 50%,
+    rgba(247, 247, 247, 0) 100%
+  );
+  animation-name: shine;
+  animation-duration: 2s;
+  animation-iteration-count: infinite;
+  animation-timing-function: linear;
+  transform: translateX(-100%);
+}
+
+@keyframes shine {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+.retry-inline {
+  flex: 1;
+  flex-direction: row;
+  align-items: center;
+}
+
+.status-link {
+  color: #3482ff;
+  font-size: 16px;
+  line-height: 24px;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+
+.status-icon {
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+}
+</style>
