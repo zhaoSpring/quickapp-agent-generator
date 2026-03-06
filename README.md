@@ -29,7 +29,6 @@ npm install
 OPENAI_API_KEY=your-api-key
 OPENAI_BASE_URL=http://model.mify.ai.srv/v1
 MODEL_NAME=gpt-5
-TEMPERATURE=0.7
 X_MODEL_PROVIDER_ID=azure_openai
 X_MODEL_REQUEST_ID=1234
 ```
@@ -56,8 +55,7 @@ curl --location 'https://api.openai.com/v1/chat/completions' \
     {"role": "system", "content": "You are a helpful assistant."},
     {"role": "user", "content": "Hello!"}
   ],
-  "stream": true,
-  "temperature": 0.7
+  "stream": true
 }'
 ```
 
@@ -67,7 +65,7 @@ curl --location 'https://api.openai.com/v1/chat/completions' \
 - ✅ 所有请求头（包括 Authorization）
 - ✅ 完整请求体结构
 - ✅ 识别动态字段：`messages[user].content` → `{{question}}`
-- ✅ 保留静态配置：`model`, `temperature`, `stream`
+- ✅ 保留静态配置：`model`,  `stream`
 
 ### 步骤 2：粘贴响应示例
 
@@ -99,8 +97,7 @@ export default {
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "{{question}}"}  // 自动替换为占位符
         ],
-        "stream": true,
-        "temperature": 0.7
+        "stream": true
     },
     headers: {
         "Content-Type": "application/json",
@@ -168,8 +165,7 @@ my-agent/
 
 ```bash
 npm run generate    # 生成项目（AI 驱动）
-npm run test-ai     # 测试 AI 工作流程
-npm run test-gpt5   # 测试 AI 连接
+npm run test-llm   # 测试 AI 连接
 npm run dev         # 开发模式
 npm run build       # 构建
 ```
