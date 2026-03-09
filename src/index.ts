@@ -4,11 +4,16 @@
 
 import * as path from 'path'
 import * as fs from 'fs'
-import { collectUserInputSimple } from './prompts/collector'
-import { TemplateFillerAgent } from './agents/TemplateFillerAgent'
-import { ConfigParserAgent } from './agents/ConfigParserAgent'
+import { fileURLToPath } from 'url'
+import { dirname } from 'path'
+import { collectUserInputSimple } from './prompts/collector.js'
+import { TemplateFillerAgent } from './agents/TemplateFillerAgent.js'
+import { ConfigParserAgent } from './agents/ConfigParserAgent.js'
 import chalk from 'chalk'
 import ora from 'ora'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 async function main() {
     try {
@@ -251,8 +256,6 @@ ${chalk.gray('- 添加新组件: src/components/')}
 }
 
 // 运行主函数
-if (require.main === module) {
-    main()
-}
+main()
 
 export { main }

@@ -2,6 +2,7 @@
     "name": "quickapp-agent-generator",
     "version": "1.0.0",
     "description": "AI-powered QuickApp Agent Generator",
+    "type": "module",
     "main": "dist/index.js",
     "scripts": {
         "generate": "tsx src/index.ts",

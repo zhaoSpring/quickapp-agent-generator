@@ -10,8 +10,8 @@ export async function collectUserInputSimple(): Promise<UserInput> {
   console.log('\n=== 快应用智能体生成器  - AI 驱动 ===\n')
   console.log('本工具使用 AI 完整理解你的 API 配置，无需手动填写复杂字段\n')
 
-  const readline = require('readline')
-  const rl = readline.createInterface({
+  const { createInterface } = await import('readline')
+  const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
   })

@@ -7,7 +7,12 @@ import { PromptTemplate } from '@langchain/core/prompts'
 import { JsonOutputParser } from '@langchain/core/output_parsers'
 import * as fs from 'fs'
 import * as path from 'path'
+import { fileURLToPath } from 'url'
+import { dirname } from 'path'
 import 'dotenv/config'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 export interface TemplateVars {
     // 项目基础信息
