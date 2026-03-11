@@ -1,6 +1,6 @@
 # 快应用智能体生成器 - AI 驱动
 
-> 完全 AI 驱动：粘贴api的 curl 调用示例，自动生成智能体快应用完整项目
+> 完全 AI 驱动：粘贴 API 的 curl 调用示例，自动生成智能体快应用完整项目
 
 ## 🚀 特性
 
@@ -10,20 +10,41 @@
 - ✅ **智能模板生成**：将动态值替换为占位符，保持静态配置原样
 - ✅ **零手动配置**：只需提供 curl 命令和响应示例，AI 自动完成所有配置
 
-📖 **详细文档**：
-- [AI_WORKFLOW.md](./AI_WORKFLOW.md) - 完整的 AI 驱动流程
+## 📦 安装
 
-## 快速开始
-
-### 1. 安装依赖
+### 全局安装（推荐）
 
 ```bash
+npm install -g quickapp-agent-generator
+```
+
+### 使用 npx（无需安装）
+
+```bash
+npx quickapp-agent-generator
+```
+
+### 本地开发
+
+```bash
+git clone <repository-url>
+cd quickapp-agent-generator
 npm install
 ```
 
-### 2. 配置 AI 模型
+## 🎯 快速开始
 
-复制 `.env.example` 到 `.env` 并配置：
+### 1. 配置 AI 模型
+
+首次使用需要配置 AI 模型。在项目根目录或用户目录创建 `.env` 文件：
+
+```env
+OPENAI_API_KEY=your-api-key
+OPENAI_BASE_URL=https://api.openai.com/v1
+MODEL_NAME=gpt-4
+```
+
+或使用兼容的 API：
 
 ```env
 OPENAI_API_KEY=your-api-key
@@ -33,13 +54,22 @@ X_MODEL_PROVIDER_ID=azure_openai
 X_MODEL_REQUEST_ID=1234
 ```
 
-### 3. 生成项目
+### 2. 运行生成器
 
 ```bash
+# 全局安装后
+quickapp-agent
+
+# 或使用 npx
+npx quickapp-agent-generator
+
+# 本地开发
 npm run generate
 ```
 
-按照提示输入配置，可以直接粘贴 curl 命令，AI 会自动解析。
+### 3. 按照提示输入配置
+
+按照交互式提示输入配置，可以直接粘贴 curl 命令，AI 会自动解析。
 
 ## 💡 使用示例
 
@@ -175,9 +205,40 @@ npm run build       # 构建
 ```bash
 cd output/your-project-name
 npm install
-npm run watch
+npm run start
 ```
 
+## 📚 可用命令
+
+### 全局安装后
+
+```bash
+quickapp-agent          # 生成新项目
+```
+
+### 本地开发
+
+```bash
+npm run generate        # 生成项目（AI 驱动）
+npm run test-llm       # 测试 AI 连接
+npm run dev            # 开发模式
+npm run build          # 构建
+```
+
+## 📋 发布到 npm
+
+如果你想发布自己的版本：
+
+```bash
+# 1. 登录 npm
+npm login
+
+# 2. 更新版本号
+npm version patch  # 或 minor, major
+
+# 3. 发布
+npm publish
+```
 
 ## 🔧 技术栈
 

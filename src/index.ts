@@ -255,7 +255,5 @@ ${chalk.gray('- 添加新组件: src/components/')}
 `
 }
 
-// 运行主函数
-main()
 
 export { main }
