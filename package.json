@@ -14,9 +14,9 @@
         "LICENSE"
     ],
     "scripts": {
-        "generate": "tsx src/index.ts",
+        "generate": "tsx src/cli.ts",
         "test-llm": "tsx test-llm.ts",
-        "dev": "tsx src/index.ts",
+        "dev": "tsx src/cli.ts",
         "build": "tsc",
         "prepublishOnly": "npm run build",
         "test:pack": "npm pack --dry-run",
